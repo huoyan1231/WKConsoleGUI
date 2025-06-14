@@ -23,10 +23,12 @@ public class Plugin : BaseUnityPlugin
     private ConfigEntry<string> customCommandsJson;
     private ConfigEntry<float> guiScaleFactor;
     private float _pendingScaleFactor;
-    
+    private ConfigEntry<int> buttonsPerRow; 
     private bool showGUI = false;
-    private Rect windowRect = new Rect(100, 100, 380, 550);
-
+    private Rect windowRect = new Rect(100, 100, 500, 550);
+    private GUIStyle tooltipStyle;
+    private bool tooltipStyleInitialized = false;
+    
     private Vector2 scrollPosition = Vector2.zero; // 初始化为(0,0)
 
     // 命令列表，可以从配置文件加载
@@ -75,6 +77,16 @@ public class Plugin : BaseUnityPlugin
                 new AcceptableValueRange<float>(0.5f, 3.0f)
             )
         );
+        buttonsPerRow = Config.Bind(
+            "GUI",
+            "ButtonsPerRow",
+            3, // 默认每行 3 个按钮
+            new ConfigDescription(
+                "每行显示的命令按钮数量。",
+                new AcceptableValueRange<int>(1, 5) 
+            )
+        );
+
 
         // --- 初始化 _pendingScaleFactor 为当前配置值 ---
         _pendingScaleFactor = guiScaleFactor.Value;
@@ -123,62 +135,101 @@ public class Plugin : BaseUnityPlugin
     }
     void OnGUI()
     {
-        // --- 新增：应用 DPI 缩放 ---
-        // 记录原始矩阵，以便在 OnGUI 结束时恢复
         Matrix4x4 originalMatrix = GUI.matrix;
-
-        // 获取 DPI 缩放因子
         float scale = guiScaleFactor.Value;
-
-        // 如果用户设置的缩放因子大于 0 且不等于 1，则应用缩放
+        
         if (scale > 0 && scale != 1.0f)
         {
-            // 计算屏幕中心点，确保缩放以中心为基准，而不是左上角
             Vector3 scaleCenter = new Vector3(Screen.width / 2, Screen.height / 2, 0);
-            
-            // 创建缩放矩阵
-            // 注意：GUI.matrix的缩放是基于屏幕左上角(0,0)的
-            // 为了让窗口在缩放后仍然居中，我们可以在窗口绘制时重新计算其位置
-            // 或者简单地将缩放应用到整个GUI，并让用户调整窗口位置
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1));
-
-            // 如果窗口位置也需要随DPI调整，可能需要这样计算：
-            // windowRect.x *= scale;
-            // windowRect.y *= scale;
-            // windowRect.width *= scale;
-            // windowRect.height *= scale;
-            // 但更好的做法是让用户拖动窗口到合适位置，或在Awake中设置更大的初始尺寸
         }
-        // --- 结束 DPI 缩放应用 ---
 
         if (showGUI)
         {
             // 确保窗口ID唯一
-            windowRect = GUI.Window(GetHashCode(), windowRect, DrawWindow, "控制台指令面板");
+            windowRect = GUI.Window(GetHashCode(), windowRect, DrawWindow, "WKConsoleGUI");
         }
         GUI.matrix = originalMatrix;
 
+        // --- 核心改动：在所有 GUI.Window 绘制完成后，统一处理 Tooltip ---
+        if (Event.current.type == EventType.Repaint && !string.IsNullOrEmpty(GUI.tooltip))
+        {
+            Vector2 mousePos = Event.current.mousePosition;
+            
+            // 计算 Tooltip 文本的实际尺寸
+            Vector2 tooltipSize = tooltipStyle.CalcSize(new GUIContent(GUI.tooltip));
+            
+            float x = mousePos.x + 15; 
+            float y = mousePos.y + 15; 
+
+            float screenWidth = Screen.width;
+            float screenHeight = Screen.height;
+
+            // 调整 X 坐标以防超出屏幕右侧
+            if (x + tooltipSize.x > screenWidth)
+            {
+                x = screenWidth - tooltipSize.x - 5; 
+            }
+            // 调整 Y 坐标以防超出屏幕底部
+            if (y + tooltipSize.y > screenHeight)
+            {
+                y = mousePos.y - tooltipSize.y - 15; 
+                if (y < 0) y = 0; 
+            }
+
+            Rect tooltipRect = new Rect(x, y, tooltipSize.x, tooltipSize.y);
+            
+            GUI.Label(tooltipRect, GUI.tooltip, tooltipStyle);
+        }
     }
 
     void DrawWindow(int windowID)
     {
         GUILayout.BeginVertical();
-        const float fixedBottomHeight = 150f; // 经验值，可根据实际效果调整
-        
+        const float fixedBottomHeight = 150f; 
         scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Width(windowRect.width), GUILayout.Height(windowRect.height - fixedBottomHeight));
-        float innerWidth = windowRect.width - 25; // 25是大概的滚动条宽度和一些额外边距
+
+        int currentButtonIndex = 0;
+        int maxButtonsPerRow = buttonsPerRow.Value; 
+
+        float availableWidthForButtons = windowRect.width - 25; 
+        float buttonSpacing = 5f;
+        float buttonWidth = (availableWidthForButtons - (maxButtonsPerRow - 1) * buttonSpacing) / maxButtonsPerRow;
+        if (buttonWidth < 50) buttonWidth = 50; 
 
         foreach (CommandEntry entry in commands)
         {
-            GUILayout.BeginVertical("box");
-            GUILayout.Label(entry.Description, GUILayout.MaxWidth(innerWidth - 10)); // 留出更多边距，使其在box内部换行
-            if (GUILayout.Button(entry.Label, GUILayout.Width(innerWidth - 10))) // 按钮宽度略小于内宽
-                // 方法二：自适应按钮宽度，但有最大限制 (更推荐，因为它能适应短文本)
-                // if (GUILayout.Button(entry.Label, GUILayout.MaxWidth(innerWidth - 10)))
+            if (currentButtonIndex % maxButtonsPerRow == 0)
+            {
+                if (currentButtonIndex > 0)
+                {
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(5); 
+                }
+                GUILayout.BeginHorizontal(); 
+            }
+
+            // --- 关键：GUIContent 传入 Label 和 Description 作为 Tooltip ---
+            GUIContent buttonContent = new GUIContent(entry.Label, entry.Description);
+            
+            // 使用 GUILayout.Box 来创建可视化块，并用 Tooltip 显示描述
+            Rect boxRect = GUILayoutUtility.GetRect(buttonContent, GUI.skin.box, GUILayout.Width(buttonWidth), GUILayout.Height(40)); 
+            
+            // 绘制 Box
+            GUI.Box(boxRect, buttonContent); // GUI.Box 会自动处理 GUIContent 中的 Tooltip 部分
+
+            // 在 boxRect 范围内绘制一个透明按钮来捕获点击事件
+            if (GUI.Button(boxRect, GUIContent.none, GUIStyle.none)) 
             {
                 ExecuteCommand(entry.Command);
             }
-            GUILayout.EndVertical();
+
+            currentButtonIndex++;
+        }
+
+        if (currentButtonIndex > 0)
+        {
+            GUILayout.EndHorizontal();
         }
         
         GUILayout.EndScrollView(); // 结束滚动视图
@@ -307,12 +358,12 @@ public class Plugin : BaseUnityPlugin
     private void LoadDefaultCommands()
     {
         commands.Clear(); // 确保在加载默认前清空
-        commands.Add(new CommandEntry("开启作弊", "cheats true", "启用作弊功能"));
-        commands.Add(new CommandEntry("关闭作弊", "cheats false", "禁用作弊功能"));
-        commands.Add(new CommandEntry("传送到起点", "teleport 0 0 0", "将玩家传送到原点"));
-        commands.Add(new CommandEntry("加满血", "heal", "恢复所有生命值"));
-        commands.Add(new CommandEntry("生成手枪", "spawn item_pistol", "生成一把手枪"));
-        commands.Add(new CommandEntry("生成步枪", "spawn item_rifle", "生成一把步枪"));
+        commands.Add(new CommandEntry("开启作弊", "cheats", "切换作弊，要开，不开下面用不了，开了禁用进度和成就防止成为世1开"));
+        commands.Add(new CommandEntry("推动(?", "addforcetoplayer 1, 1, 1", ""));
+        commands.Add(new CommandEntry("全亮", "fullbright", "███████"));
+        commands.Add(new CommandEntry("获取种子", "getgenerationseed", "目前还不能种地（大概"));
+        commands.Add(new CommandEntry("无敌", "godmode", "但是还是得爬"));
+        commands.Add(new CommandEntry("无限体力", "infinitestamina", "我编不出来了"));
         commands.Add(new CommandEntry("默认测试1", "test_default 1", "这是从代码加载的默认命令1"));
         commands.Add(new CommandEntry("默认测试2", "test_default 2", "这是从代码加载的默认命令2"));
     }
@@ -325,13 +376,12 @@ public class Plugin : BaseUnityPlugin
             // 创建一个包含默认命令的列表用于序列化
             List<CommandEntry> defaultCommands = new List<CommandEntry>
             {
-                new CommandEntry("开启作弊", "cheats true", "启用游戏作弊功能"),
-                new CommandEntry("关闭作弊", "cheats false", "禁用游戏作弊功能"),
-                new CommandEntry("传送到起点", "teleport 0 0 0", "将玩家传送到地图原点"),
-                new CommandEntry("示例长描述文本按钮", "long_command", "这是一个非常非常长的描述文本，用于测试文本在GUI中的自动换行功能，看看它是否能正确地显示所有内容而不超出边界。"),
-                new CommandEntry("加满血", "heal", "恢复玩家所有生命值"),
-                new CommandEntry("生成手枪", "spawn item_pistol", "在玩家位置生成一把手枪"),
-                new CommandEntry("生成步枪", "spawn item_rifle", "在玩家位置生成一把步枪")
+                new CommandEntry("开启作弊", "cheats", "切换作弊，要开，不开下面用不了，开了禁用进度和成就防止成为世1开"),
+                new CommandEntry("推动(?", "addforcetoplayer 1, 1, 1", ""),
+                new CommandEntry("全亮", "fullbright", "███████"),
+                new CommandEntry("获取种子", "getgenerationseed", "目前还不能种地（大概"),
+                new CommandEntry("无敌", "godmode", "但是还是得爬"),
+                new CommandEntry("无限体力", "infinitestamina", "我编不出来了")
             };
 
             string jsonString = JsonConvert.SerializeObject(defaultCommands, Formatting.Indented); // Formatting.Indented 使JSON更易读

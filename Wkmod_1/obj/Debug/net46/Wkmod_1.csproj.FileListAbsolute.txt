@@ -1,0 +1,14 @@
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.csproj.AssemblyReference.cache
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\MyPluginInfo.cs
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.GeneratedMSBuildEditorConfig.editorconfig
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.AssemblyInfoInputs.cache
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.AssemblyInfo.cs
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.csproj.CoreCompileInputs.cache
+D:\git\WK_mod1\Wkmod_1\bin\Debug\net46\Wkmod_1.dll
+D:\git\WK_mod1\Wkmod_1\bin\Debug\net46\Wkmod_1.pdb
+D:\git\WK_mod1\Wkmod_1\bin\Debug\net46\Assembly-CSharp.dll
+D:\git\WK_mod1\Wkmod_1\bin\Debug\net46\netstandard.dll
+D:\git\WK_mod1\Wkmod_1\bin\Debug\net46\UnityEngine.UI.dll
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.csproj.Up2Date
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.dll
+D:\git\WK_mod1\Wkmod_1\obj\Debug\net46\Wkmod_1.pdb

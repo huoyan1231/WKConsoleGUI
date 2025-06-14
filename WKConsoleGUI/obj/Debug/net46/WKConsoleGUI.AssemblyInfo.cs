@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WKConsoleGUI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+eac8cc86c50c4e64495a785dab56be208e2b6bd5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dd313dd3956b478d4c6736c04bf341849f571069")]
 [assembly: System.Reflection.AssemblyProductAttribute("My first plugin")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WKConsoleGUI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

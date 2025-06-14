@@ -22,10 +22,10 @@ public class Plugin : BaseUnityPlugin
     // private ConfigEntry<string> customCommandsJson; 
     private ConfigEntry<string> customCommandsJson;
     private ConfigEntry<float> guiScaleFactor;
-
+    private float _pendingScaleFactor;
     
     private bool showGUI = false;
-    private Rect windowRect = new Rect(100, 100, 300, 400);
+    private Rect windowRect = new Rect(100, 100, 380, 550);
 
     private Vector2 scrollPosition = Vector2.zero; // 初始化为(0,0)
 
@@ -65,14 +65,19 @@ public class Plugin : BaseUnityPlugin
             "自定义控制台命令列表 (JSON格式)。"
             );
         LoadCommands(); 
-        // --- 新增：DPI 缩放比例配置项 ---
+
         guiScaleFactor = Config.Bind(
             "GUI",
             "ScaleFactor",
-            1.0f, // 默认不缩放
-            "GUI 窗口的缩放比例。在高DPI屏幕上可以设置为1.5, 2.0等，以增大窗口尺寸。"
+            1.0f,
+            new ConfigDescription(
+                "GUI 窗口的缩放比例。在高DPI屏幕上可以设置为1.5, 2.0等，以增大窗口尺寸。",
+                new AcceptableValueRange<float>(0.5f, 3.0f)
+            )
         );
 
+        // --- 初始化 _pendingScaleFactor 为当前配置值 ---
+        _pendingScaleFactor = guiScaleFactor.Value;
     }
 
     private void Update()
@@ -158,14 +163,18 @@ public class Plugin : BaseUnityPlugin
     void DrawWindow(int windowID)
     {
         GUILayout.BeginVertical();
+        const float fixedBottomHeight = 150f; // 经验值，可根据实际效果调整
         
-        scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Width(windowRect.width), GUILayout.Height(windowRect.height - 50)); // 预留底部空间给重载按钮和拖动条
+        scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Width(windowRect.width), GUILayout.Height(windowRect.height - fixedBottomHeight));
+        float innerWidth = windowRect.width - 25; // 25是大概的滚动条宽度和一些额外边距
 
         foreach (CommandEntry entry in commands)
         {
             GUILayout.BeginVertical("box");
-            GUILayout.Label(entry.Description);
-            if (GUILayout.Button(entry.Label))
+            GUILayout.Label(entry.Description, GUILayout.MaxWidth(innerWidth - 10)); // 留出更多边距，使其在box内部换行
+            if (GUILayout.Button(entry.Label, GUILayout.Width(innerWidth - 10))) // 按钮宽度略小于内宽
+                // 方法二：自适应按钮宽度，但有最大限制 (更推荐，因为它能适应短文本)
+                // if (GUILayout.Button(entry.Label, GUILayout.MaxWidth(innerWidth - 10)))
             {
                 ExecuteCommand(entry.Command);
             }
@@ -176,16 +185,41 @@ public class Plugin : BaseUnityPlugin
 
         // --- 新增：重载配置按钮 ---
         GUILayout.Space(10); // 按钮上方留点空间
+        // --- GUI 缩放滑块 (现在操作的是 _pendingScaleFactor) ---
+        GUILayout.Label($"GUI 缩放 ({_pendingScaleFactor:F1}x)"); // 显示暂存值
+        _pendingScaleFactor = GUILayout.HorizontalSlider(_pendingScaleFactor, 0.5f, 3.0f);
+        // --- 新增：应用缩放按钮 ---
+        if (GUILayout.Button("应用缩放"))
+        {
+            if (guiScaleFactor.Value != _pendingScaleFactor) // 只有当值改变时才应用
+            {
+                guiScaleFactor.Value = _pendingScaleFactor; // 将暂存值赋给配置项
+                Logger.LogInfo($"GUI 缩放已应用: {guiScaleFactor.Value:F1}x");
+                // 由于 guiScaleFactor.Value 改变会立即影响 OnGUI 中的 GUI.matrix，所以不需要 Config.Reload()
+                // 但是，如果希望更改保存到文件，可能需要手动触发 Save()
+                // Config.Save(); // 如果需要在运行时立即写入配置文件
+            }
+            else
+            {
+                Logger.LogInfo("缩放值未改变，无需应用。");
+            }
+        }
+        // --- 结束新增 ---
+
+
+        GUILayout.Space(10); // 分隔空间
+
         if (GUILayout.Button("重载配置"))
         {
             Logger.LogInfo("尝试重载配置...");
             Config.Reload(); // BepInEx 的 ConfigManager 提供的重载方法
+            _pendingScaleFactor = guiScaleFactor.Value; 
             LoadCommands(); // 重新加载命令列表（如果从配置加载）
             Logger.LogInfo("配置已重载！");
         }
 
 
-        GUI.DragWindow(new Rect(0, 0, 10000, 20)); // 允许拖动窗口
+        GUI.DragWindow(new Rect(0, 0, windowRect.width, windowRect.height));
         GUILayout.EndVertical();
     }
 
@@ -220,37 +254,94 @@ public class Plugin : BaseUnityPlugin
         }
     }
 
-    // --- 新增：加载命令列表的方法 ---
     private void LoadCommands()
     {
-        // 这是一个简单的示例，您可以扩展为从 ConfigEntry<string> 或 JSON 文件加载
-        // 为了方便演示，我们仍然使用硬编码的默认值，但逻辑可以轻松修改
-        
-        // 每次加载前清空现有列表，防止重复
-        commands.Clear(); 
+        commands.Clear(); // 清空现有命令列表
 
-        // 这里可以从配置文件加载 JSON 字符串，然后反序列化
-        // 例如：
-         string jsonCommands = customCommandsJson.Value;
-         if (!string.IsNullOrEmpty(jsonCommands)) {
-             try {
-                 commands = JsonConvert.DeserializeObject<List<CommandEntry>>(jsonCommands);
-                 Logger.LogInfo("Commands loaded from config.");
-                 return; // 如果成功从配置加载，则不加载默认值
-             } catch (System.Exception ex) {
-                 Logger.LogError($"Failed to load commands from config: {ex.Message}");
-             }
-         }
+        string jsonFilePath = Path.Combine(Paths.ConfigPath, "GUICommandsButtons.json"); // 构建 JSON 文件路径
 
-        // 如果没有从配置加载成功，则加载默认命令
-        Logger.LogInfo("Loading default commands.");
-        commands.Add(new CommandEntry("开启作弊", "cheats true", "启用作弊功能"));
-        commands.Add(new CommandEntry("关闭作弊", "cheats false", "禁用作弊功能")); // 添加关闭作弊
-        commands.Add(new CommandEntry("传送到起点", "teleport 0 0 0", "将玩家传送到原点"));
-        commands.Add(new CommandEntry("加满血", "heal", "恢复所有生命值"));
-        commands.Add(new CommandEntry("生成手枪", "spawn item_pistol", "生成一把手枪")); // 更多示例
-        commands.Add(new CommandEntry("生成步枪", "spawn item_rifle", "生成一把步枪"));
+        if (File.Exists(jsonFilePath))
+        {
+            try
+            {
+                string jsonString = File.ReadAllText(jsonFilePath);
+                List<CommandEntry> loadedCommands = JsonConvert.DeserializeObject<List<CommandEntry>>(jsonString);
+
+                if (loadedCommands != null)
+                {
+                    commands.AddRange(loadedCommands);
+                    Logger.LogInfo($"成功从 '{jsonFilePath}' 加载 {commands.Count} 条命令。");
+                }
+                else
+                {
+                    Logger.LogWarning($"JSON 文件 '{jsonFilePath}' 内容为空或格式不正确。将加载默认命令。");
+                    LoadDefaultCommands(); // 如果文件为空或解析失败，加载默认命令
+                }
+            }
+            catch (JsonException ex)
+            {
+                Logger.LogError($"解析 JSON 文件 '{jsonFilePath}' 失败: {ex.Message}。请检查文件格式。将加载默认命令。");
+                Logger.LogDebug($"JSON 解析错误详情: {ex.ToString()}"); // 调试用
+                LoadDefaultCommands(); // JSON 解析失败，加载默认命令
+            }
+            catch (IOException ex)
+            {
+                Logger.LogError($"读取文件 '{jsonFilePath}' 失败: {ex.Message}。将加载默认命令。");
+                LoadDefaultCommands();
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError($"加载命令时发生未知错误: {ex.Message}。将加载默认命令。");
+                LoadDefaultCommands();
+            }
+        }
+        else
+        {
+            Logger.LogWarning($"未找到命令文件 '{jsonFilePath}'。将加载默认命令，并尝试创建示例文件。");
+            LoadDefaultCommands();
+            SaveDefaultCommandsToFile(jsonFilePath); // 创建一个包含默认命令的示例文件
+        }
     }
 
+    // --- 新增：加载默认命令的方法 ---
+    private void LoadDefaultCommands()
+    {
+        commands.Clear(); // 确保在加载默认前清空
+        commands.Add(new CommandEntry("开启作弊", "cheats true", "启用作弊功能"));
+        commands.Add(new CommandEntry("关闭作弊", "cheats false", "禁用作弊功能"));
+        commands.Add(new CommandEntry("传送到起点", "teleport 0 0 0", "将玩家传送到原点"));
+        commands.Add(new CommandEntry("加满血", "heal", "恢复所有生命值"));
+        commands.Add(new CommandEntry("生成手枪", "spawn item_pistol", "生成一把手枪"));
+        commands.Add(new CommandEntry("生成步枪", "spawn item_rifle", "生成一把步枪"));
+        commands.Add(new CommandEntry("默认测试1", "test_default 1", "这是从代码加载的默认命令1"));
+        commands.Add(new CommandEntry("默认测试2", "test_default 2", "这是从代码加载的默认命令2"));
+    }
+
+    // --- 新增：保存默认命令到文件的方法 ---
+    private void SaveDefaultCommandsToFile(string filePath)
+    {
+        try
+        {
+            // 创建一个包含默认命令的列表用于序列化
+            List<CommandEntry> defaultCommands = new List<CommandEntry>
+            {
+                new CommandEntry("开启作弊", "cheats true", "启用游戏作弊功能"),
+                new CommandEntry("关闭作弊", "cheats false", "禁用游戏作弊功能"),
+                new CommandEntry("传送到起点", "teleport 0 0 0", "将玩家传送到地图原点"),
+                new CommandEntry("示例长描述文本按钮", "long_command", "这是一个非常非常长的描述文本，用于测试文本在GUI中的自动换行功能，看看它是否能正确地显示所有内容而不超出边界。"),
+                new CommandEntry("加满血", "heal", "恢复玩家所有生命值"),
+                new CommandEntry("生成手枪", "spawn item_pistol", "在玩家位置生成一把手枪"),
+                new CommandEntry("生成步枪", "spawn item_rifle", "在玩家位置生成一把步枪")
+            };
+
+            string jsonString = JsonConvert.SerializeObject(defaultCommands, Formatting.Indented); // Formatting.Indented 使JSON更易读
+            File.WriteAllText(filePath, jsonString);
+            Logger.LogInfo($"已在 '{filePath}' 创建示例命令文件。");
+        }
+        catch (System.Exception ex)
+        {
+            Logger.LogError($"创建示例命令文件失败: {ex.Message}");
+        }
+    }
 }
 

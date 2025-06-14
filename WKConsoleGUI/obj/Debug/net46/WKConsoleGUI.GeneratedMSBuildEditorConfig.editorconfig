@@ -1,0 +1,8 @@
+is_global = true
+build_property.RootNamespace = WKConsoleGUI
+build_property.ProjectDir = D:\git\WK_mod1\WKConsoleGUI\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.CsWinRTUseWindowsUIXamlProjections = false
+build_property.EffectiveAnalysisLevelStyle = 
+build_property.EnableCodeStyleSeverity = 
